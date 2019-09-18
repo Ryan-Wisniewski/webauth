@@ -1,19 +1,42 @@
 const express = require('express')
 const bcryptjs = require('bcryptjs')
+const session = require('express-session')
+const KnexSessionStore = require('connect-session-knex')(session)
 
 const userDb = require('../helpers/userHelper')
-const test = require('../authentication-middleware/authentication')
+const { idCheck } = require('../authentication-middleware/authentication')
 
+const dbConnection = require('../data/dbConfig')
 const router = express.Router()
 
-router.use(express.json());
+const sessionConfig = {
+    name: 'chocolate chip',
+    secret: process.env.SESSION_SECRET || 'keep it secret, tralala nothing to see here',
+    cookie: {
+      maxAge: 1000 * 60,
+      secure: false,
+      httpOnly: true,
+    },
+    resave: false,
+    saveUninitialized: true, //GDPR compliance
+    store: new KnexSessionStore({
+      knex: dbConnection,
+      createtable: true,
+      clearInterval: 1000 * 60 *30
+    })
+  }
 
-router.get('/', test.idCheck, (req, res) => {
+router.use(express.json());
+router.use(session(sessionConfig))
+
+
+router.get('/users', idCheck, (req, res) => {
     userDb.get()
     .then(user => {
         res.status(200).json(user)
     })
     .catch(()=>{
+        console.log(err)
         res.status(500).jason({error: "The projects information could not be retrieved."})
     })     
 })
@@ -40,6 +63,7 @@ router.post('/login', (req, res) => {
     .first()
     .then(user => {
         if (user && bcryptjs.compareSync(password, user.password)){
+            req.session.user = user
             res.status(200).json({ message: `Yayyyy you passed the hashtest: ${user.username}`})
         } else {
             res.status(401).status({ message: 'Hah TRY AGAIN'})
@@ -50,5 +74,14 @@ router.post('/login', (req, res) => {
       res.status(500).json({ error: "There was an oopsies"})
     })
 });
+
+router.get('/logout', (req,res)=> {
+    if(req.session) {
+        req.session.destroy()
+        res.status(200).json('byyebye')
+    } else {
+        res.status(200).json({message: 'alraedy logged out'})
+    }
+})
 
 module.exports = router
